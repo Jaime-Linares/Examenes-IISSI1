@@ -1,123 +1,178 @@
-USE jailinbar_turnosmñn;
+CREATE DATABASE IF NOT EXISTS jailinbar_sep2022;
+USE jailinbar_sep2022;
+
+-- 0. Ejecute la consulta SELECT COUNT(*) FROM Students; y compruebe que el resultado que devuelve es 21.
+SELECT COUNT(*)
+FROM students;
 
 
 /*
-1. Ejecute el script SQL proporcionado y para asegurar que todo es correcto y ejecute 
-la consulta SELECT count(*) FROM Camareros;. Compruebe que el resultado devuelto es 4.
+1. Añada el requisito de información Publicación. Una publicación es un artículo publicado en una revista
+por un profesor. Sus atributos son: el título de la publicación, el profesor que es el autor principal, el
+número total de autores, la fecha de publicación (día), y el nombre de la revista donde ha sido publicada.
+Hay que tener en cuenta las siguientes restricciones:
+- Un profesor no puede tener varias publicaciones en la misma revista, el mismo día.
+- El número de autores debe ser al menos 1 y como máximo 10.
+- Todos los atributos son obligatorios a excepción de la fecha de publicación.
 */
-SELECT count(*) FROM camareros;
+DROP TABLE IF EXISTS publicaciones;
 
-
-/*
-2. Se requiere añadir el requisito de información Bajas. Suponga que un Camarero puede tener varias Bajas. 
-Para cada Baja se requiere guardar la siguiente información:
-▪ El tipo de baja del que se trata (puede ser ‘Permanente’ o ‘Temporal’)
-▪ Fecha inicio de la baja (por defecto será la fecha actual).
-▪ Fecha fin de baja.
-▪ Fecha en la que se ha aceptado la baja (se considerará no aceptada mientras tenga valor nulo).
-Hay que tener en cuenta las siguientes restricciones adicionales:
-- El tipo de baja no tiene en cuenta las mayúsculas o minúsculas. Esto quiere decir que es 
-	válido tanto ‘permanente’ como ‘PERMANENTE’. 0.5
-- Las bajas deben borrarse del sistema cuando un camarero es eliminado. 0.5
-- La fecha de inicio debe ser anterior a la fecha de finalización. Además, la fecha de inicio debe ser 
-	posterior o igual a la fecha de aceptación 0.5
-*/
-DROP TABLE IF EXISTS Bajas;
-
-CREATE TABLE Bajas(
-	idBajas INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
-	tipo ENUM ('Permanente', 'Temporal'), -- collate utf8_general_ci,
-	fechaInicio DATE DEFAULT(DATE(SYSDATE())),
-	fechaFinal DATE,
-	fechaAceptacion DATE,
-	idCamarero INT NOT NULL,
-	FOREIGN KEY (idCamarero) REFERENCES camareros(idCamarero) ON DELETE CASCADE,
-	CONSTRAINT fechasInvalidad CHECK ((fechaInicio < fechaFinal) AND (fechaInicio >= fechaAceptacion))
+CREATE TABLE publicaciones(
+publicacionId INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+titulo VARCHAR(128) NOT NULL,
+professorId INT NOT NULL,
+numAutores INT NOT NULL,
+fechaPublicacion DATE,
+revista VARCHAR(128) NOT NULL,
+FOREIGN KEY (professorId) REFERENCES professors(professorId),
+CONSTRAINT numAutoresInvalido CHECK (numAutores>=1 AND numAutores<=10)
 );
 
-
-/*
-3. Cree y ejecute (tantas veces como sea necesario) un procedimiento almacenado llamado insertarBaja() 
-que, recibiendo los valores como parámetros, inserte las siguientes bajas
-*/
 DELIMITER //
-CREATE OR REPLACE PROCEDURE insertarBaja(t VARCHAR(90), fi DATE, ff DATE, fa DATE, idC INT)
+CREATE OR REPLACE TRIGGER tVariasPublicaciones
+BEFORE INSERT ON publicaciones
+FOR EACH ROW
 BEGIN
-	INSERT INTO bajas(tipo, fechaInicio, fechaFinal, fechaAceptacion, idCamarero) VALUE
-	(t, fi, ff, fa, idC);
-END //
-DELIMITER ;
-
-CALL insertarBaja('TEMPORAl', '2022-12-10', '2022-12-12', '2022-12-04', 2);
-CALL insertarBaja('Permanente', '2023-01-01', NULL, '2022-12-15', 2);
-CALL insertarBaja('TEmPoral', '2022-12-01', '2023-03-01', '2022-11-22', 3);
-
-
-/*
-4. Cree una consulta que devuelva la ratio de Camareros hombres. La ratio se calcula dividiendo
-el número de camareros de dicho sexo entre el número total de camareros
-*/
-SELECT ((SELECT COUNT(*) FROM camareros WHERE sexo='H')/COUNT(*)) ratio
-FROM camareros;
-
-/*
-5. Cree una consulta que devuelva los Camareros, sus Turnos y sus Bajas. Los Camareros
-deben aparecer, aunque no tengan Bajas. Un ejemplo de resultado de esta consulta es el
-siguiente
-*/
-SELECT *
-FROM camareros c
-LEFT JOIN bajas b ON (c.idCamarero=b.idCamarero)
-LEFT JOIN turnos t ON (c.idCamarero=t.idCamarero);
-
-
-/*
-6. Cree una consulta que devuelva el identificador, nombre y apellidos de los Camareros que
-nunca han solicitado una baja. Un ejemplo de resultado de esta consulta es el siguiente
-*/
-SELECT idCamarero, CONCAT(nombre, ' ', apellidos) nombreapellidos
-FROM camareros  
-EXCEPT
-SELECT idCamarero, CONCAT(nombre, ' ', apellidos) nombreapellidos
-FROM camareros
-NATURAL JOIN bajas;
-
-	-- Otra forma
-SELECT c.idCamarero, CONCAT(c.nombre, ' ', c.apellidos) nombreapellidos
-FROM camareros  c
-WHERE NOT EXISTS (SELECT c.idCamarero, CONCAT(c.nombre, ' ', c.apellidos) nombreapellidos
-						FROM bajas b
-						WHERE c.idCamarero=b.idCamarero);
-
-
--- 7. Cree una función que, dado un idCamarero, devuelva el número de turnos que tiene asignados
-DELIMITER //
-CREATE OR REPLACE FUNCTION fNumTurnos(idC INT) RETURNS INT 
-BEGIN
-	RETURN(
-		SELECT COUNT(*)
-		FROM turnos
-		WHERE idCamarero=idC
-	);
-END //
-DELIMITER ;
-
-SELECT idCamarero, fNumTurnos(idCamarero) FROM camareros;
-
-
--- 8. Implemente la restricción que no permita que un camarero tenga más de 5 turnos.
-DELIMITER //
-CREATE OR REPLACE TRIGGER tTurnosCamarero
-BEFORE INSERT ON turnos FOR EACH ROW
-BEGIN
-	DECLARE numTurnos INT;
-	SET numTurnos = (SELECT COUNT(*) FROM turnos WHERE idCamarero=NEW.idCamarero);
-	if(numTurnos>4) then
+	DECLARE numPublicaciones INT;
+	SET numPublicaciones = (SELECT COUNT(*) 
+									FROM publicaciones 
+									WHERE (NEW.revista=revista AND NEW.fechaPublicacion=fechaPublicacion));
+	IF(numPublicaciones>0) THEN 
 		SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT =
-		'Un camarero no puede tener mas de 5 turnos';
-	END if;
+		'Un profesor no puede tener varias publicaciones en la misma revista, el mismo día';
+	END IF;
 END //
 DELIMITER ;
 
+
+/*
+2. Cree y ejecute un procedimiento almacenado llamado pInsertPublications() que cree las siguientes
+publicaciones:
+- Publicación titulada “Publicación 1” del profesor con ID=1, con 3 autores, publicada en la
+revista “Revista 1”.
+- Publicación titulada “Publicación 2”, del profesor con ID=1, con 5 autores, publicada el 1 de
+Enero de 2018 en la revista “Revista 2”.
+- Publicación titulada “Publicación 3”, del profesor con ID=2, con 2 autores, publicada en la
+revista “Revista 3”.
+*/
+DELIMITER //
+CREATE OR REPLACE PROCEDURE 
+pInsertPublications(tit VARCHAR(128), professor INT, numAut INT, fechaPubli DATE, rev VARCHAR(128))
+BEGIN 
+	INSERT INTO publicaciones(titulo, professorId, numAutores, fechaPublicacion, revista) VALUE
+	(tit, professor, numAut, fechaPubli, rev);
+END //
+DELIMITER ;
+
+CALL pInsertPublications('Publicacion 1', 1, 3, NULL, 'Revista 1');
+CALL pInsertPublications('Publicacion 2', 1, 5, '2018-01-01', 'Revista 2');
+CALL pInsertPublications('Publicacion 3', 2, 2, NULL, 'Revista 3');
+
+
+/*
+3. Cree un disparador llamado tCorrectAuthors que, al actualizarse una publicación, si el número de autores
+fuera a pasar a ser más de 10, lo cambie a 10 en su lugar.
+*/
+DELIMITER //
+CREATE OR REPLACE TRIGGER tCorrectAuthors
+AFTER UPDATE ON publicaciones 
+FOR EACH ROW
+BEGIN
+	IF(NEW.numAutores>10) THEN
+		UPDATE publicaciones SET numAutores=10 WHERE NEW.publicacionId=publicacionId;
+	END IF;
+END //
+DELIMITER ;
+
+
+/*
+4. Cree un procedimiento almacenado llamado pUpdatePublications(p, n) que actualiza el número de
+autores de las publicaciones del profesor p con el valor n. Ejecute la llamada a pUpdatePublications(1,10).
+Cree un procedimiento almacenado llamado pDeletePublications(p) que elimina las publicaciones del
+profesor con ID=p. Ejecute la llamada pDeletePublications(2).
+*/
+DELIMITER //
+CREATE OR REPLACE PROCEDURE pUpdatePublications(p INT, n INT)
+BEGIN
+	UPDATE publicaciones SET numAutores=n WHERE professorId=p;
+END //
+DELIMITER ;
+
+CALL pUpdatePublications(1, 10);
+
+DELIMITER //
+CREATE OR REPLACE PROCEDURE pDeletePublications(p INT)
+BEGIN
+	DELETE FROM publicaciones WHERE professorId=p;
+END //
+DELIMITER ;
+
+CALL pDeletePublications(2);
+
+
+/*
+5. Cree una consulta que devuelva el nombre del grado, el nombre de la asignatura, el número de créditos
+de la asignatura y su tipo, para todas las asignaturas que pertenecen a todos los grados. Ordene los
+resultados por el nombre del grado
+*/
+SELECT D.name, S.name, S.credits, S.`type`
+FROM degrees D
+JOIN subjects S ON(D.degreeId=S.degreeId)
+ORDER BY 1; 
+
+
+-- 6. Cree una consulta que devuelva las tutorías con al menos una cita.
+SELECT T.tutoringHoursId
+FROM tutoringhours T
+NATURAL JOIN appointments A;
+
+
+/*
+ 7. Cree una consulta que devuelva la carga media en créditos de docencia del profesor cuyo ID=1. Un
+ejemplo de resultado de esta consulta es el siguiente
+*/
+SELECT AVG(credits) avgCreditsProfessor1
+FROM teachingloads
+WHERE professorId=1;
+
+
+/*
+8. Cree una consulta que devuelva el nombre y los apellidos de los dos estudiantes con mayor nota media,
+sus notas medias, y su nota más baja.
+*/
+SELECT firstName, surname, AVG(VALUE) avgGrade, MIN(VALUE) minGrade
+FROM grades 
+NATURAL JOIN students
+GROUP BY studentId
+ORDER BY avgGrade DESC
+LIMIT 2;
+
+
+/*
+9. Cree una consulta que devuelva el nombre y los apellidos del estudiante que ha sacado la nota
+más alta del grupo con ID=10.
+*/
+SELECT s.firstName, s.surname
+FROM grades g
+NATURAL JOIN students s
+WHERE g.groupId=10 AND g.value = ALL (SELECT MAX(VALUE) 
+													FROM grades 
+													WHERE groupId=10);
+													
+	-- Otra forma
+SELECT s.firstName, s.surname
+FROM grades g
+NATURAL JOIN students s
+WHERE g.groupId=10 AND g.value >= ALL (SELECT VALUE 
+													FROM grades 
+													WHERE groupId=10);
+																		
+	-- Otra forma
+SELECT s.firstName, s.surname
+FROM grades g
+NATURAL JOIN students s
+WHERE g.groupId=10
+ORDER BY g.value DESC
+LIMIT 1;
 
 
